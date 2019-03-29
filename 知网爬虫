@@ -1,0 +1,284 @@
+from bs4 import BeautifulSoup
+import requests
+import csv
+import re
+import scrapy
+import time
+
+from lxml import etree
+import bs4
+from selenium import webdriver
+def check_link(url, headers):
+    try:
+        r = requests.get(url,headers =headers )
+        #print(r) <Response [200]>
+        r.raise_for_status()
+        #print(r.raise_for_status())  None
+        r.encoding = r.apparent_encoding
+        return  r.text
+
+    except:
+        print ('无法连接到服务器！')
+'''爬取资源'''
+def make_url_list(pagelist):
+    url_list = []
+    for i in pagelist:
+        url = 'http://kns.cnki.net/kns/brief/brief.aspx?curpage='+i+'&RecordsPerPage=50&QueryID=2&ID=&turnpage=1&tpagemode=L&dbPrefix=SCDB&Fields=&DisplayMode=custommode&PageName=ASP.brief_default_result_aspx&isinEn=1&'
+        url_list.append(url)
+
+    return url_list
+
+
+def get_contents(rurl):
+
+    soup = BeautifulSoup(rurl,'lxml') #因为下文的的td.string只能识别只有一个标签的tag，所以对于多标签的内容，先用re把输入进soup的网页内容替换掉，将其变成一个内容，在进行处理
+    #这里rurl已经是上一步里r.text返回的字符串类型的网页数据了，所以这一步就需要把输入lxml 让BS把字符串当成网页数据来处理
+    ulist = []
+    '''获取每篇文章需要知道的信息类型'''
+
+    tpyelist = ['题目','作者','来源','时间','摘要','下载链接']
+
+    num_list = []
+    trs = soup.find_all('div',class_='GridLeftColumn')
+    for i in trs:
+        str = ''
+        for i in i.get_text():
+            if i != '' and i!= '\n':
+                str += i
+        num_list.append(str)
+    #print(num_list)
+
+    #print(trs) 出现了所有的tr（总表）里面包含的整个表的所有内容
+    tds = soup.find_all('span', class_="author")
+    name_list = []
+    for i in tds:
+        str = ''
+        for i in i.get_text():
+            if i != '' and i != '\n':
+                str += i
+        name_list.append(str)
+    #print(name_list)
+
+    title_list = []
+    trs = soup.find_all('div', class_="GridTitleDiv")
+    for tr  in trs:
+        str = ''
+        for i in tr.get_text():
+            if i != '' and i != '\n':
+                str += i
+        title_list.append(str)
+    #print(title_list)
+    journal_list = []
+    trs = soup.find_all('span', class_="journal")
+    for i in trs:
+        str = ''
+        for i in i.get_text():
+            if i != '' and i != '\n':
+                str += i
+        journal_list.append(str)
+    #print(journal_list)
+
+    abstract_list = []
+    trs = soup.find_all('p', class_="abstract_c")
+    for i in trs:
+        str = ''
+        for i in i.get_text():
+            if i != '' and i != '\n':
+                str += i
+        abstract_list.append(str)
+    #print(abstract_list)
+
+    data_list = []
+    trs = soup.find_all( 'label',string=re.compile("发表时间"))
+    for i in trs:
+        str = ''
+        for i in i.get_text():
+            if i != '' and i != '\n':
+                str += i
+        data_list.append(str)
+    #print(data_list)
+
+    download_list = []
+    trs = soup.find_all('a', href=re.compile('download'))
+    for i in trs:
+        download_list.append(i['href'].strip('.'))
+    #print(download_list)
+
+    doc_dict = {}
+
+    for i in range(len(num_list)):
+        k = {}
+        k[tpyelist[0]] = title_list[i]
+        k[tpyelist[1]] = name_list[i]
+        k[tpyelist[2]] = journal_list[i]
+        k[tpyelist[3]] = data_list[i]
+        k[tpyelist[4]] = abstract_list[i]
+        k[tpyelist[5]] = download_list[i]
+        doc_dict[num_list[i]] = k
+
+    return doc_dict
+    # text = {}
+    # n = int()
+    # for tr in trs:
+    #     tds = tr.find_all('td')
+    #     m = []
+    #     num = 0
+    #     for td in tds:
+    #
+    #         k = [i for i in td.get_text() if i != ' ' and i != '\n'] #这一步就已经产生直接的字符串了
+    #         if num == 0:
+    #             str = ''
+    #             for i in k :
+    #                 str+= i
+    #             n = int(str)
+    #             text[n] = list()
+    #         str = ''
+    #         for i in k :
+    #             str = str +i
+    #         m.append(str)
+    #         num +=1
+    #         text[n] = m
+    #         if num >4:
+    #             break
+    # trs = soup.find_all('tr', bgcolor=re.compile('#*'))
+    # url_list = []
+    # for tr in trs:
+    #     alist = tr.find_all('a', class_="briefDl_D")
+    #     for a in alist:
+    #         url_list.append(a['href'].strip('.'))
+    # i = 0
+    # for key in text:
+    #     text[key].append(url_list[i])
+    #     i +=1
+    # text_dic = {}
+    # i = 0
+    # for key in text:
+    #     k = {}
+    #     for i in range(6):
+    #         k[tpyelist[i]] = text[key][i]
+    #     text_dic[key] = k
+    # tr = soup.find_all('a', class_="fz14")
+    # for i in tr:
+    #     print(i['href'])
+
+'''保存资源'''
+def download_pdf(dlurl, filename):
+    root_url = '''http://kns.cnki.net/kns'''
+    file_url = root_url + dlurl
+    with open(filename+'.caj', 'wb') as code:
+        r = requests.get(file_url)
+        code.write(r.content)
+
+def save_contents(urlist):
+    with open('潍柴.csv', 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerows('')
+        for i in range(len(urlist)):
+            #writer.writerow([[urlist[i][j] for j in range(urlist[0])]])
+                writer.writerow([urlist[i][0],urlist[i][1],urlist[i][2]])
+    # with open ('潍柴动力产参数表.csv','w',newline='') as f:
+    #     writer = csv.writer(f)
+    #     writer.['潍柴动力产品参数表']
+    #     #for i in range(len(urlist)):
+    #         #writer.writerow([urlist[i][0],urlist[i][1],urlist[i][2]])
+
+def get_pages(rurl):
+
+    soup = BeautifulSoup(rurl,'lxml')
+    p = soup. find_all('div', class_='TitleLeftCell')
+    page = []
+    for a in p:
+        alist = a.find_all('a')
+        for i in alist:
+            k = i.get_text()
+            page.append(k)
+    page.pop(-1)
+    page.insert(0,str(1))
+
+    t = soup.find_all('div', class_="pagerTitleCell")
+    k = list()
+    for i in t:
+        k = [i for i in i.get_text() if i.isdigit() == True]
+    n = ''
+    for i in k:
+        n += i
+    n = int(n)
+    return  page, n
+
+
+def main(url,headers):
+
+    rs = check_link(url,headers)
+    doc_dict = get_contents(rs)
+
+    return doc_dict
+
+
+
+if __name__ == '__main__':
+    start = time.clock()
+    time.sleep(1)
+    print('正在进行搜索结果分析',end='')
+    url = 'http://kns.cnki.net/kns/brief/brief.aspx?curpage=1&RecordsPerPage=50&QueryID=3&ID=&turnpage=1&tpagemode=L&dbPrefix=SCDB&Fields=&DisplayMode=custommode&PageName=ASP.brief_default_result_aspx&isinEn=1&'
+    header = {
+        'Referer': url,
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/73.0.3683.75 Safari/537.36',
+        'Cookie': 'Ecp_notFirstLogin=6C0Xdy; Ecp_ClientId=8190319161701737526; ASP.NET_SessionId=fsnlca0idblypt5zpc0ginq2; SID_kns=123113; SID_klogin=125143; Ecp_session=1; SID_crrs=125131; KNS_SortType=; SID_krsnew=125131; cnkiUserKey=d23f710b-a637-a9c5-2c81-52082c65fdca; SID_kcms=124119; SID_knsdelivery=125122; SID_kxreader_new=011123; SID_kns_kdoc=025011122; SID_kinfo=125105; RsPerPage=50; KNS_DisplayModel=custommode@SCDB; ASPSESSIONIDAQCDTBBB=LLPFHFGBJNECPOBBNGKPJENC; _pk_ref=%5B%22%22%2C%22%22%2C1553223329%2C%22http%3A%2F%2Fwww.cnki.net%2F%22%5D; _pk_ses=*; LID=WEEvREdxOWJmbC9oM1NjYkZCbDdrdTViZjFXMHZxTHloejB1MlBvQmdIa1c=$R1yZ0H6jyaa0en3RxVUd8df-oHi7XMMDo7mtKT6mSmEvTuk11l2gFA!!; Ecp_LoginStuts=%7B%22IsAutoLogin%22%3Afalse%2C%22UserName%22%3A%22DB0085%22%2C%22ShowName%22%3A%22%25E5%2593%2588%25E5%25B0%2594%25E6%25BB%25A8%25E5%25B7%25A5%25E4%25B8%259A%25E5%25A4%25A7%25E5%25AD%25A6%22%2C%22UserType%22%3A%22bk%22%2C%22r%22%3A%226C0Xdy%22%7D; c_m_LinID=LinID=WEEvREdxOWJmbC9oM1NjYkZCbDdrdTViZjFXMHZxTHloejB1MlBvQmdIa1c=$R1yZ0H6jyaa0en3RxVUd8df-oHi7XMMDo7mtKT6mSmEvTuk11l2gFA!!&ot=03/22/2019 11:42:35; c_m_expire=2019-03-22 11:42:35'
+    }
+    rurl = check_link(url, header)
+    for i in range(6):
+        print('.',end='', flush=True)
+        time.sleep(0.5)
+    pagelist, text_num = get_pages(rurl)
+    print('','\r')
+    print('关键词搜索完成！')
+    print('此次搜索结果一共%d 页，共计 %d 篇论文等待分析！'%(len(pagelist),text_num))
+
+
+    print('正在生成url列表......')
+    url_list= make_url_list(pagelist)
+    dic_list = []
+    num = 0
+    for url in url_list:
+
+        doc_dict = main(url,header)
+        dic_list.append(doc_dict)
+        if num > 0:
+            print('',end='\r')
+            print('正在进行网页数据解析,已解析百分之%f '%(100.0*num/len(url_list)) , end='')
+            for i in range(6):
+                time.sleep(0.5)
+                print('.', end='', flush=True)
+
+            print('',end='\r')
+            print('正在进行网页数据解析,已解析百分之%f .......'%(100.0*num/len(url_list)), end='')
+        num += 1
+    print('',end='\r')
+    print('知网解析完成！')
+    print(dic_list)
+
+    print('正在进行爬虫数据生成',end='')
+    final_dic = {}
+    for i in dic_list:
+        final_dic.update(i)
+        print('.',end='',flush=True)
+        time.sleep(0.5)
+    print('',end='\r')
+    print('爬虫数据生成完成!')
+    num = 0
+    for key in final_dic:
+        print('正在解析文件地址',end='')
+        filename = '荣俊松/'+ key + final_dic[key]['题目'].replace('/','')
+        file_url = final_dic[key]['下载链接']
+        download_pdf(file_url, filename)
+
+        print('',end='\r')
+        print('正在进行文件《%s》 下载,已下载 %d 个文件'%(filename,num),end='',flush=True)
+        for i in range(8):
+            print('.',end='',flush=True)
+            time.sleep(0.5)
+        print('',end='\r')
+        print('完成文件《%s》 下载,已下载 %d 个文件'%(filename,num))
+        num += 1
+    elapsed = time.clock()-start
+    print('下载完成，总计 %d 个文件，总共用时 %f s'%(num,elapsed))
